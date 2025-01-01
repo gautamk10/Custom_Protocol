@@ -1,0 +1,151 @@
+#include<stdio.h>
+#include<stdint.h>
+#include<stdlib.h>
+#include<time.h>
+
+#define start_byte 0x7E   //Strart Byte
+#define end_byte   0x7F   //End Byte
+#define Nak_byte   0x15  //Negative Acknowledgement
+
+#define poly 0xA001  //Polynomial for CRC Checksum method
+
+// Define an enum for commands
+typedef enum {
+    READ = 0x01,  // Command for reading data
+    WRITE = 0x02  // Command for writing data
+} command;
+
+typedef struct {
+    uint8_t start;        //Start of Message
+    uint8_t command;      //command type
+    uint16_t data_length; //Legth of Data
+    uint8_t data[255];   //Data Field
+    uint16_t crc;       //CRC Checksum
+     uint8_t end;       //End of the message
+}MessageFrame;
+
+//   CRC CALCULATION FUNCTION
+uint16_t calculate_crc(MessageFrame *frame){
+    uint16_t crc =0xFFFF;
+    crc = crc^frame->command;
+    
+    //Process each byte of Data
+    for(int i =0;i<frame->data_length;i++){
+        crc = crc ^ frame->data[i];
+        for(int j =0;j<8;j++){
+            if(crc & 1){
+                crc = (crc >> 1) ^ poly; //shift oen bit right then XOR with the Polynomial
+            }else{
+            crc = crc >> 1; //only shift one bit right
+            }
+        }
+    }
+    return crc;
+}
+
+//transmit Function form Sender's Side
+void mytransmit(MessageFrame *mypack){
+    mypack->crc = calculate_crc(mypack); //calculationg CRC for transmit data
+    
+    printf("Sender Transmitting Message...\n");
+    printf("Start:Ox%X\n",mypack->start);
+    printf("Command:0x%X\n",mypack->command);
+    printf("Data Length:0x%d\n",mypack->data_length);
+    printf("Data:\n");
+    for(int i =0;i<mypack->data_length;i++){
+        printf("0x%X\n",mypack->data[i]);}
+    printf("CRC: 0x%X\n",mypack->crc);
+    printf("End: 0x%X\n\n",mypack->end);
+}
+
+// NAK Negative Acknowldgement from receiver to sender
+void send_nak(){
+    printf("Receiver: Data error detected!! Sending NAK (0x%X) to Sender..\n",Nak_byte);
+}
+
+//Receiver function(receiver function with error handling anf retransmission request)
+
+void myreceive(MessageFrame *received_packet, MessageFrame *sent_packet){
+    uint16_t calculated_crc = calculate_crc(received_packet);
+    
+    if(calculated_crc == received_packet->crc){
+        //If CRC matches, then only print data
+        printf("Receiver: Data is Correct...\n");
+        printf("Start:0x%X\n",received_packet->start);
+        printf("Command: 0x%X (%s)\n", 
+               received_packet->command, 
+               (received_packet->command == READ) ? "READ" : "WRITE");
+        printf("Data Length:0x%d\n",received_packet->data_length);
+        printf("Data: \n");
+        for(int i =0; i< received_packet->data_length; i++) {
+            printf("0x%X\n",received_packet->data[i]);
+        }
+        printf("End:0x%X\n",received_packet->end);
+    }else{
+        //If CRC deosn't match, requet transmission
+        send_nak();
+        
+        printf("Receiver: Waiting for Retransmission....\n");
+        
+        printf("Receiver: Requesting Retransmission....\n");
+       
+        printf("Receiver: Ready to receive the Retransmitted Data");
+        
+        
+        srand(time(NULL));  //Intitialize Randmon Number Generator
+        if(rand()%2 == 0){
+            printf("Receiver: Transmission Successful!\n\n");
+            mytransmit(sent_packet);
+        }else{
+            printf("Receiver: Retransmission failed. Try Again.\n");
+            }
+        }
+    }
+
+    int main(){
+         //Sender Side(Tranmsitting a Valid Packet)
+         MessageFrame packet;
+         packet.start = start_byte;
+         packet.command = 0x01;
+         packet.data_length = 3;
+         packet.data[0] = 0x01;
+         packet.data[1] = 0x02;
+         packet.data[2] = 0x03;
+         packet.end = end_byte;
+         
+         //Simulating transmission sender
+         mytransmit(&packet);
+         
+         //Receiver side (receving and chehcking packet)
+         MessageFrame received_packet = packet;
+         
+         //Simulate data Corruption
+        // received_packet.data[1] = 0xFF;
+         
+         myreceive(&received_packet, &packet);
+         
+         printf("\n");
+         
+         
+         MessageFrame packet2;
+         packet2.start = start_byte;
+         packet2.command = 0x02;
+         packet2.data_length = 3;
+         packet2.data[0] = 0x01;
+         packet2.data[1] = 0x02;
+         packet2.data[2] = 0x03;
+         packet2.end = end_byte;
+         
+         //Simulating transmission sender
+         mytransmit(&packet2);
+         
+         //Receiver side (receving and chehcking packet)
+         MessageFrame received_packet2 = packet2;
+         
+         //Simulate data Corruption
+         received_packet2.data[1] = 0xFF;
+         
+         myreceive(&received_packet2, &packet2);
+         
+         return 0;
+         }
